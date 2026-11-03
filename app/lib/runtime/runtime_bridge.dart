@@ -166,6 +166,9 @@ class RuntimeStatus {
     this.directEngineAvailable = false,
     this.directEngineActive = false,
     this.directEngineFallbackReason,
+    this.prorootEngineEnabled = false,
+    this.prorootEngineAvailable = false,
+    this.prorootEngineActive = false,
     this.currentExecutionMode,
     this.launchSelectedMode,
     this.launchSpawned = false,
@@ -223,6 +226,9 @@ class RuntimeStatus {
   final bool directEngineAvailable;
   final bool directEngineActive;
   final String? directEngineFallbackReason;
+  final bool prorootEngineEnabled;
+  final bool prorootEngineAvailable;
+  final bool prorootEngineActive;
 
   /// Native process observation, never inferred from the saved direct preference.
   final String? currentExecutionMode;
@@ -241,6 +247,9 @@ class RuntimeStatus {
     'directEngineAvailable': directEngineAvailable,
     'directEngineActive': directEngineActive,
     'directEngineFallbackReason': directEngineFallbackReason,
+    'prorootEngineEnabled': prorootEngineEnabled,
+    'prorootEngineAvailable': prorootEngineAvailable,
+    'prorootEngineActive': prorootEngineActive,
     'currentExecutionMode': currentExecutionMode,
     'launchSelectedMode': launchSelectedMode,
     'launchSpawned': launchSpawned,
@@ -293,6 +302,9 @@ class RuntimeStatus {
     directEngineAvailable: map['directEngineAvailable'] == true,
     directEngineActive: map['directEngineActive'] == true,
     directEngineFallbackReason: map['directEngineFallbackReason'] as String?,
+    prorootEngineEnabled: map['prorootEngineEnabled'] == true,
+    prorootEngineAvailable: map['prorootEngineAvailable'] == true,
+    prorootEngineActive: map['prorootEngineActive'] == true,
     currentExecutionMode: map['currentExecutionMode'] as String?,
     launchSelectedMode: map['launchSelectedMode'] as String?,
     launchSpawned: map['launchSpawned'] == true,
@@ -608,6 +620,10 @@ class RuntimeBridge {
 
   /// Takes effect on the next start; native code rejects changes while active.
   Future<void> setDirectEngine(bool enabled) => _methods.invokeMethod<void>('setDirectEngine', {'enabled': enabled});
+
+  /// proroot: proot's compatibility model without the ptrace round trip (experimental).
+  Future<void> setProrootEngine(bool enabled) =>
+      _methods.invokeMethod<void>('setProrootEngine', {'enabled': enabled});
 
   /// Output around the last failure, tokens masked.
   Future<List<String>> failureLog() async => (await _methods.invokeListMethod<String>('failureLog')) ?? const [];

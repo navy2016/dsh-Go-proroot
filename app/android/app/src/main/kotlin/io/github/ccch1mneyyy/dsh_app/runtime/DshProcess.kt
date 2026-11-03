@@ -2,6 +2,7 @@ package io.github.ccch1mneyyy.dsh_app.runtime
 
 import android.content.Context
 import android.os.Process as AndroidProcess
+import android.os.SystemClock
 import android.system.ErrnoException
 import android.system.Os
 import android.system.OsConstants
@@ -38,6 +39,11 @@ class DshProcess(
     @Volatile private var stopping = false
     @Volatile private var expectedExit = false
     @Volatile private var readyReported = false
+    // Splits the startup line's `dsh` segment: proot+node until the first output, then DSH's own
+    // boot until the token URL, then the wait for the port to accept connections.
+    @Volatile private var spawnedAt = 0L
+    @Volatile private var firstOutputAt = 0L
+    @Volatile private var tokenAt = 0L
     @Volatile private var waiter: Thread? = null
     @Volatile private var stopper: Thread? = null
     // Share captured identities across launcher replacement within this app
@@ -70,7 +76,7 @@ class DshProcess(
      * [binds] are extra proot `-b host:guest` mounts, inserted before the guest command.
      * [safe] boots the rescue profile instead of `web` (see [SafeMode.profileArg]).
      */
-    fun start(guestEnv: Map<String, String>, binds: List<String> = emptyList(), safe: Boolean = false, phone: Boolean = false, directEngine: Boolean = false, directFailed: Boolean = false, onLaunchMethod: ((Boolean) -> Unit)? = null) {
+    fun start(guestEnv: Map<String, String>, binds: List<String> = emptyList(), safe: Boolean = false, phone: Boolean = false, directEngine: Boolean = false, directFailed: Boolean = false, proroot: Boolean = false, onLaunchMethod: ((Boolean) -> Unit)? = null) {
         check(process == null) { "already started" }
         var selection = DirectLaunch.select(rootfs, directEngine, safe, directFailed)
         // Only PRoot's fake hard links stand in Direct's way: tidy them once no runtime process is left.
@@ -78,7 +84,7 @@ class DshProcess(
         val cleanup = reapStrays(allowObservationGap = !selection.direct && !tidy)
         if (tidy && cleanup.complete) selection = tidyLinks(binds)
         directFallbackReason = selection.fallbackReason ?: if (directEngine && safe) "safeRecovery" else null
-        launchDiagnostics.selected(selection.direct, directFallbackReason)
+        launchDiagnostics.selected(if (proroot) ProrootLaunch.BACKEND else if (selection.direct) "direct" else "proot", directFallbackReason)
         direct = selection.direct
         check(cleanup.complete || (!direct && !cleanup.ownedRemaining)) { "runtime cleanup incomplete; stop the engine and retry" }
         if (!cleanup.complete) listener.onLog("[dsh-app] starting proot with incomplete process observation; no captured runtime identities remain", "system")
@@ -103,7 +109,10 @@ class DshProcess(
 
         val argv = ArrayList<String>()
         val sameBind = DirectLaunch.samePathBind(rootfs)
-        val launchArgv = DirectLaunch.prootArguments(rootfs, manifest.launchArgv, direct)
+        val launchArgv = when {
+            proroot -> ProrootLaunch.convert(manifest.launchArgv)
+            else -> DirectLaunch.prootArguments(rootfs, manifest.launchArgv, direct)
+        }
         val allBinds = binds.filterNot { expand(it) == sameBind }.distinct()
         // PRoot's Node resolves through glibc, which fails A with a refused AAAA (#152): add Direct's resolver.
         val effectiveGuestEnv = guestEnv + ("DSH_GO_RUNTIME_ROOT" to rootfs.canonicalPath) +
@@ -151,8 +160,17 @@ class DshProcess(
         env["TMPDIR"] = tmp.absolutePath
         env["ANDROID_ROOT"] = System.getenv("ANDROID_ROOT") ?: "/system"
         env["ANDROID_DATA"] = System.getenv("ANDROID_DATA") ?: "/data"
-        env["PROOT_TMP_DIR"] = tmp.absolutePath
-        manifest.launchEnv.forEach { (k, v) -> env[k] = expand(v) }
+        if (proroot) {
+            // proroot reads its companion libraries from the environment; PROOT_* keys are gone.
+            env["PROROOT_TMP_DIR"] = tmp.absolutePath
+            env["PROROOT_LIB_PATH"] = expand("{NATIVE_LIB_DIR}/${ProrootLaunch.RUNTIME}")
+            env["PROROOT_LINKER_PATH"] = expand("{NATIVE_LIB_DIR}/${ProrootLaunch.LINKER_ADAPTER}")
+            env["PROROOT_STUB_LOADER"] = expand("{NATIVE_LIB_DIR}/${ProrootLaunch.STUB_LOADER}")
+            manifest.launchEnv.forEach { (k, v) -> if (!k.startsWith("PROOT_")) env[k] = expand(v) }
+        } else {
+            env["PROOT_TMP_DIR"] = tmp.absolutePath
+            manifest.launchEnv.forEach { (k, v) -> env[k] = expand(v) }
+        }
         if (!guestEnvPlaced) env.putAll(effectiveGuestEnv)
         if (direct) {
             val plan = DirectLaunch.prepare(rootfs, manifest.abi, argv, env.toMap())
@@ -174,6 +192,7 @@ class DshProcess(
         onLaunchMethod?.invoke(direct)
         val p = builder.start()
         process = p
+        spawnedAt = SystemClock.elapsedRealtime()
         launchDiagnostics.spawned()
         val out = pump(p.inputStream.bufferedReader(), "stdout")
         val err = pump(p.errorStream.bufferedReader(), "stderr")
@@ -257,10 +276,13 @@ class DshProcess(
         stopper = thread(name = "dsh-stop", isDaemon = true) {
             try {
                 val node = if (p.isAlive) guestRecord() else null
-                val proot = if (direct) null else node?.let { child -> processSnapshot().records.firstOrNull { it.pid == child.parent && it.proot } }
+                val launcher = if (direct) null else node?.let { child -> processSnapshot().records.firstOrNull { it.pid == child.parent && it.container } }
                 if (node != null) signalOwned(node, OsConstants.SIGTERM)
                 else if (direct && p.isAlive) p.destroy() // loader/preload may fail before writing its pid file
-                if (!waitExit(p, 5000) && proot != null) signalOwned(proot, OsConstants.SIGQUIT)
+                // proot reaps every tracee on SIGQUIT; proroot has no tracee model, so take the launcher out.
+                if (!waitExit(p, 5000) && launcher != null) {
+                    signalOwned(launcher, if (launcher.proroot) OsConstants.SIGKILL else OsConstants.SIGQUIT)
+                }
                 waitExit(p, 2000)
             } finally {
                 try {
@@ -310,6 +332,7 @@ class DshProcess(
         try {
             reader.useLines { lines ->
                 lines.forEach { line ->
+                    if (firstOutputAt == 0L) firstOutputAt = SystemClock.elapsedRealtime()
                     listener.onLog(line, stream)
                     if (!readyReported) detectToken(line)
                 }
@@ -318,17 +341,33 @@ class DshProcess(
         }
     }
 
+    /** Read off a phone's runtime log to tell PRoot/Node startup from DSH's own boot. */
+    private fun logStartupDetail() {
+        val spawn = spawnedAt
+        if (spawn == 0L) return
+        val out = firstOutputAt
+        val token = tokenAt
+        val boot = if (out > 0L && token > 0L) "${token - out} ms" else "?"
+        val listen = if (token > 0L) "${SystemClock.elapsedRealtime() - token} ms" else "?"
+        listener.onLog(
+            "[dsh-app] startup detail: proot+node ${if (out > 0L) "${out - spawn} ms" else "?"}, dsh boot $boot, listen $listen",
+            "system",
+        )
+    }
+
     @Synchronized private fun detectToken(line: String) {
         if (readyReported || stopping) return
         val match = TOKEN_URL.find(line) ?: return
         val url = match.value
         val token = TOKEN_PARAM.find(url)?.groupValues?.get(1) ?: return
+        tokenAt = SystemClock.elapsedRealtime()
         readyReported = true
         val base = "http://127.0.0.1:$port"
         thread(name = "dsh-ready", isDaemon = true) {
             val deadline = System.currentTimeMillis() + 90_000
             while (System.currentTimeMillis() < deadline && !stopping && process?.isAlive == true) {
                 if (canConnect(port)) {
+                    logStartupDetail()
                     listener.onReady(this, base, token)
                     return@thread
                 }
@@ -397,11 +436,12 @@ class DshProcess(
             if (!ownedRemaining && snapshot.observed) {
                 // This cache is shared across rootfs instances. Another engine may still use its glue.
                 val temp = File(context.cacheDir, "proot-tmp").absolutePath
-                val idle = snapshot.records.none { it.proot || it.marker != null || RuntimeProcessOwnership.within(it.cwd, temp) }
+                val idle = snapshot.records.none { it.container || it.marker != null || RuntimeProcessOwnership.within(it.cwd, temp) }
                 return CleanupResult(true, false, canPruneTemp = idle)
             }
             owned.filter { it.proot }.forEach { signalOwned(it, if (first) OsConstants.SIGQUIT else OsConstants.SIGKILL) }
-            owned.filterNot { it.proot }.forEach { signalOwned(it, OsConstants.SIGKILL) }
+            owned.filter { it.proroot }.forEach { signalOwned(it, OsConstants.SIGKILL) }
+            owned.filterNot { it.container }.forEach { signalOwned(it, OsConstants.SIGKILL) }
             first = false
             if ((!ownedRemaining && allowObservationGap) || System.nanoTime() >= deadline) {
                 listener.onLog("[dsh-app] cleanup incomplete: ${owned.size} owned process(es) remain; " +

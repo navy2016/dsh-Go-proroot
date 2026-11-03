@@ -230,6 +230,24 @@ DS Bot 的 NOTICE 原文附在文末。
 | flutter_webrtc（pub 包，含 Android 插件代码） | 1.6.3 | MIT；其 NOTICE 另含 react-native-webrtc（MIT，Copyright (c) 2015 Howard Yang）与 `SimulcastVideoEncoderFactoryWrapper.kt`（Apache-2.0，Copyright 2017, Lyo Kato；Copyright 2017-2021, Shiguredo Inc.），原文见文末 | Copyright (c) 2018 湖北捷智云技术有限公司 | DSH Remote 直连（P2P / TURN）的 DataChannel；只用数据通道，不碰麦克风、摄像头和音频会话 |
 | WebRTC Android SDK（`io.github.webrtc-sdk:android`，libwebrtc m150） | 150.7871.04 | BSD-3-Clause，另附 Google 的专利授权（PATENTS） | Copyright (c) 2011, The WebRTC project authors | flutter_webrtc 的原生 WebRTC（`libjingle_peerconnection_so.so`，每个 ABI 一份） |
 | AudioSwitch（`com.github.davidliu:audioswitch`，twilio/audioswitch 的分支） | `039a35aefab7747c557242fa216c9ea11743b604` | Apache-2.0 | Copyright 2020 Twilio, inc. | flutter_webrtc 的音频路由依赖；DSH Go 不建音频轨，不会启用 |
+| coderredlab/proroot（`libproroot*.so`，五件） | 1.2.8 | 专有许可：可在自己项目中免费使用，但不得分发修改后的二进制 | Copyright (c) coderredlab | 可选启动后端：保留 proot 的兼容语义，改用 LD_PRELOAD 翻译路径，不产生 ptrace 往返。原样分发，未做任何修改 |
+| DSHA 的 proroot 入口垫片（`libdsha-proroot-compat.so`、`libdsha-proroot-linker.so`） | DSH-APP/DSHA `3989a430e46fbe544d15fa05549aa60cfcddee08` | MIT | Copyright (c) DSH-APP/DSHA contributors | Android 13+ 上 proroot 需要 GNU sysconf 代理与入口适配器才能启动；两个文件原样取自上游 `app/src/main/jniLibs/arm64-v8a/`，位于 `runtime/vendor/proroot-compat/` |
+
+### proroot 打包核对（2026-11-03）
+
+`runtime/build-runtime.sh` 在 arm64-v8a 构建时加入以上七件，五个 vendor 文件的 sha256 由 `PIN` 固定（取自 GitHub release 资产的 digest）：
+
+```text
+a4e74d75b66cdc02b080adfe863dbf9951c3b30610d77beddc95488d5fe5de01  libproroot.so
+8c47a0a7db32d84c179ebb5bf3640f655a3181860ece5886ae44d92858730c34  libproroot-runtime.so
+51a0ec5bfed00e572a0de09e22d9057e2befc386b78e426613d3e0ab03f4ecee  libproroot-linker.so
+06c6624db3bdc45b9ced151cd781df439a37b47731d244b93e9d6a58cd48cde0  libproroot-stub-loader.so
+1c5bc9537a270e8bf8b1c70222813f57b60b828bfb5503ddf8fe37685092de2f  libproroot-bridge.so
+c693728a15bfef86eb52731517da2d06e67474459eeb883e31a4fa75dff0592d  libdsha-proroot-compat.so（DSHA，MIT）
+26428de01fb2638cb0293469013cabfac8919f6df772bc7d1b6b0506d8b501d7  libdsha-proroot-linker.so（DSHA，MIT）
+```
+
+proroot 默认关闭，只在用户于开发者选项打开后作为启动后端；proot 仍是默认后端，两种后端的数据、路径与工具链完全相同。
 
 ### WebRTC 150.7871.04 核对记录（2026-10-30）
 

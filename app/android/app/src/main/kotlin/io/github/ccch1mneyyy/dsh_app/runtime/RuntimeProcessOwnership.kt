@@ -10,6 +10,10 @@ data class RuntimeProcessRecord(
     val cwd: String?,
 ) {
     val proot: Boolean get() = argv.firstOrNull()?.substringAfterLast('/') in setOf("libproot.so", "proot")
+    /** proroot translates paths without ptrace, so it has no tracee of its own to signal. */
+    val proroot: Boolean get() = argv.firstOrNull()?.substringAfterLast('/') == "libproroot.so"
+    /** Either container launcher owns the guest processes below it. */
+    val container: Boolean get() = proot || proroot
 }
 
 /** A missing process is distinct from an observation that failed. */

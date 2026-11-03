@@ -10272,6 +10272,16 @@ class L10nEn extends L10n {
   String get phoneDirectEngine => 'Direct local engine launch';
 
   @override
+  String get phoneProrootEngine => 'Launch with proroot (experimental)';
+
+  @override
+  String get phoneProrootHint =>
+      'Keeps proot’s compatibility model but translates paths through LD_PRELOAD instead of ptrace. Off by default; applies after the engine is stopped.';
+
+  @override
+  String get phoneProrootNeedsRuntime => 'This build has no proroot binaries (arm64 runtimes only)';
+
+  @override
   String get phoneDirectHint =>
       'Experimental and off by default; applies on the next start. Some phones (Android 16, for one) block a direct start, and the app then goes back to compatible launch on its own. Your data isn’t affected.';
 

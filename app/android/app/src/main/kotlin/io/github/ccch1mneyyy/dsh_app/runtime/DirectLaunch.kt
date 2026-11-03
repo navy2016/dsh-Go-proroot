@@ -30,14 +30,26 @@ object DirectLaunch {
      * The saved launch method. [saved] is the user's explicit choice (null until they make one);
      * [failedRuntime] the runtime version Direct last failed to launch with.
      */
-    data class Preference(val saved: Boolean?, val available: Boolean, val failedRuntime: String?, val runtime: String?) {
+    data class Preference(
+        val saved: Boolean?,
+        val available: Boolean,
+        val failedRuntime: String?,
+        val runtime: String?,
+        /** Consecutive failed direct launches with [failedRuntime]. */
+        val failures: Int = 0,
+    ) {
         /** Off until the user turns it on: Android's seccomp filter kills glibc's loader on some
          * phones (Android 16, x86_64), so Direct stays opt-in for now. */
         val requested: Boolean get() = (saved ?: false) && available
-        /** Compatible launch until the runtime changes or the user turns Direct on again. */
-        val failed: Boolean get() = failedRuntime != null && failedRuntime == runtime
+        /** Compatible launch until the runtime changes or every attempt is spent. */
+        val failed: Boolean get() = failedRuntime != null && failedRuntime == runtime && failures >= MAX_ATTEMPTS
         /** What the switch shows: whether the next normal start tries Direct. */
         val enabled: Boolean get() = requested && !failed
+
+        companion object {
+            /** One failure can be a leftover from a half-tidied link store or a transient error. */
+            const val MAX_ATTEMPTS = 2
+        }
     }
 
     /** Only mounts in the final launch authorize a host path (not a fixed /sdcard allowlist). */

@@ -142,6 +142,9 @@ class RuntimeController private constructor(private val app: Context) : DshProce
         "directEngineAvailable" to directEngineAvailable(),
         "directEngineActive" to (process?.executionMode == "direct"),
         "directEngineFallbackReason" to lastLaunch?.fallbackReason,
+        "prorootEngineEnabled" to prorootEngine(),
+        "prorootEngineAvailable" to prorootEngineAvailable(),
+        "prorootEngineActive" to (process?.executionMode == ProrootLaunch.BACKEND),
         "currentExecutionMode" to process?.executionMode,
         "launchSelectedMode" to lastLaunch?.selectedMode,
         "launchSpawned" to (lastLaunch?.spawned == true),
@@ -149,14 +152,26 @@ class RuntimeController private constructor(private val app: Context) : DshProce
         "tidyingFiles" to tidyingFiles,
     )
 
-    private fun directEngine() = DirectLaunch.Preference(
-        saved = if (prefs.contains(K_DIRECT_ENGINE)) prefs.getBoolean(K_DIRECT_ENGINE, false) else null,
-        available = directEngineAvailable(),
-        failedRuntime = prefs.getString(K_DIRECT_FAILED, null),
-        runtime = runCatching { manifest.runtimeVersion }.getOrNull(),
-    )
+    private fun directEngine(): DirectLaunch.Preference {
+        val runtime = runCatching { manifest.runtimeVersion }.getOrNull()
+        val failedRuntime = prefs.getString(K_DIRECT_FAILED, null)
+        return DirectLaunch.Preference(
+            saved = if (prefs.contains(K_DIRECT_ENGINE)) prefs.getBoolean(K_DIRECT_ENGINE, false) else null,
+            available = directEngineAvailable(),
+            failedRuntime = failedRuntime,
+            runtime = runtime,
+            failures = if (failedRuntime != null && failedRuntime == runtime) prefs.getInt(K_DIRECT_FAILED_COUNT, 0) else 0,
+        )
+    }
     private fun directEngineAvailable(): Boolean = runCatching {
         manifest.raw.optJSONObject("directEngine")?.optInt("schema") == 2
+    }.getOrDefault(false)
+
+    private fun prorootEngine(): Boolean = prefs.getBoolean(K_PROROOT_ENGINE, false)
+
+    /** proroot binaries only ship in jniLibs when the runtime build includes that backend. */
+    private fun prorootEngineAvailable(): Boolean = runCatching {
+        File(app.applicationInfo.nativeLibraryDir, ProrootLaunch.LAUNCHER).isFile
     }.getOrDefault(false)
 
     /**
@@ -166,7 +181,15 @@ class RuntimeController private constructor(private val app: Context) : DshProce
     @Synchronized fun setDirectEngine(enabled: Boolean) {
         check(process == null && phase !in setOf(Phase.STARTING, Phase.RUNNING, Phase.STOPPING, Phase.INSTALLING) && !resetting) { "stop the engine before changing its launch method" }
         check(!enabled || directEngineAvailable()) { "this bundled runtime does not support direct launch" }
-        prefs.edit().putBoolean(K_DIRECT_ENGINE, enabled).remove(K_DIRECT_FAILED).apply()
+        prefs.edit().putBoolean(K_DIRECT_ENGINE, enabled).remove(K_DIRECT_FAILED).remove(K_DIRECT_FAILED_COUNT).apply()
+        emitStatus()
+    }
+
+    /** proroot: proot's compatibility model without the ptrace round trip. Off until chosen. */
+    @Synchronized fun setProrootEngine(enabled: Boolean) {
+        check(process == null && phase !in setOf(Phase.STARTING, Phase.RUNNING, Phase.STOPPING, Phase.INSTALLING) && !resetting) { "stop the engine before changing its launch method" }
+        check(!enabled || prorootEngineAvailable()) { "this bundled runtime has no proroot binaries" }
+        prefs.edit().putBoolean(K_PROROOT_ENGINE, enabled).apply()
         emitStatus()
     }
 
@@ -349,7 +372,9 @@ class RuntimeController private constructor(private val app: Context) : DshProce
                 process = p
                 timeline.spawned()
                 val direct = directEngine()
-                p.start(env, if (storage) PhoneStorage.binds() else emptyList(), safe, phone, direct.requested, direct.failed) { actualDirect ->
+                // proroot is the user's explicit speed choice for this start, so it wins over Direct.
+                val proroot = prorootEngine() && prorootEngineAvailable()
+                p.start(env, if (storage) PhoneStorage.binds() else emptyList(), safe, phone, direct.requested && !proroot, direct.failed && !proroot, proroot) { actualDirect ->
                     GuestSetup.writeAgentsMd(installer.rootfs, storage, phone, pendingVisualReplies, actualDirect)
                 }
                 if (phone) PhoneControl.get(app).launched(p.phoneMounted)
@@ -771,10 +796,18 @@ class RuntimeController private constructor(private val app: Context) : DshProce
             val tail = synchronized(runTail) { runTail.toList() }
             var f = CrashClassifier.classify(code, readyAt, SystemClock.elapsedRealtime(), System.currentTimeMillis(), tail, runSafe, source.direct)
             if (SafePolicy.directLaunchFailed(f, source.direct)) {
-                // Direct can't launch on this device: PRoot from now on with this runtime, no failure card,
-                // no strike. A new runtime, or the user turning Direct on again, gives it another try.
-                prefs.edit().putString(K_DIRECT_FAILED, manifest.runtimeVersion).apply()
+                // Direct can fail for reasons that do not repeat (a half-tidied link store, a
+                // transient storage or heap error), so keep a second attempt for a later start
+                // before settling on PRoot for this runtime. No failure card, no strike.
+                val runtime = manifest.runtimeVersion
+                val count = (if (prefs.getString(K_DIRECT_FAILED, null) == runtime) prefs.getInt(K_DIRECT_FAILED_COUNT, 0) else 0) + 1
+                prefs.edit().putString(K_DIRECT_FAILED, runtime).putInt(K_DIRECT_FAILED_COUNT, count).apply()
                 log("[dsh-app] direct launch failed (${f.summary}); starting again with compatible launch", "system")
+                if (count < DirectLaunch.Preference.MAX_ATTEMPTS) {
+                    log("[dsh-app] direct: ${DirectLaunch.Preference.MAX_ATTEMPTS - count} more attempt kept for a later start", "system")
+                } else {
+                    log("[dsh-app] direct: out of attempts with this runtime; stays on PRoot until the runtime changes or Direct is switched on again", "system")
+                }
                 restartNow("with compatible launch")
                 return
             }
@@ -863,8 +896,12 @@ class RuntimeController private constructor(private val app: Context) : DshProce
         private const val K_MOVED = "movedAside"
         private const val K_AUTO_SAFE = "autoSafe"
         private const val K_DIRECT_ENGINE = "directEngine"
+        /** proroot backend switch (see [ProrootLaunch]). */
+        private const val K_PROROOT_ENGINE = "prorootEngine"
         /** Runtime version Direct failed to launch with (see [SafePolicy.directLaunchFailed]). */
         private const val K_DIRECT_FAILED = "directEngineFailedRuntime"
+        /** Failures with [K_DIRECT_FAILED]'s runtime (see [DirectLaunch.Preference.MAX_ATTEMPTS]). */
+        private const val K_DIRECT_FAILED_COUNT = "directEngineFailedCount"
         private const val MAIN_FAILURE_LOG = "failure-normal.log"
         private const val LATEST_FAILURE_LOG = "failure-latest.log"
 

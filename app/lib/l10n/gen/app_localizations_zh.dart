@@ -9753,6 +9753,15 @@ class L10nZh extends L10n {
   String get phoneDirectEngine => '直接启动本机引擎';
 
   @override
+  String get phoneProrootEngine => '用 proroot 启动（实验）';
+
+  @override
+  String get phoneProrootHint => '保留 proot 的兼容语义，改用 LD_PRELOAD 翻译路径，省掉每次路径系统调用被 ptrace 拦下的开销。默认关闭，停止引擎后打开才生效。';
+
+  @override
+  String get phoneProrootNeedsRuntime => '这个安装包没有内置 proroot（仅 arm64 的运行时带）';
+
+  @override
   String get phoneDirectHint => '实验功能，默认关闭，下次启动生效。部分手机（例如 Android 16）会拦截直接启动，届时自动改用兼容启动，数据不受影响。';
 
   @override

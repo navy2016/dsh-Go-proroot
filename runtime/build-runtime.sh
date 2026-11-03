@@ -47,6 +47,10 @@ UBUNTU_VERSION="${UBUNTU_VERSION:-24.04.5}"
 PROOT_VERSION="5.1.107.98"
 TALLOC_VERSION="2.5.0"
 SHMEM_VERSION="0.7"
+# Optional second backend (arm64-v8a only): coderredlab/proroot, proot's compatibility model
+# without the ptrace round trip. Proprietary binaries, shipped byte-identical; the two entry
+# shims under runtime/vendor/proroot-compat are DSH-APP/DSHA's (MIT).
+PROROOT_VERSION="${PROROOT_VERSION:-1.2.8}"
 UBUNTU_EXTRA="${UBUNTU_EXTRA:-tzdata ca-certificates git}"   # extra noble debs (+ dependency closure)
 PYTHON_VERSION="${PYTHON_VERSION:-3.12.15}"
 PBS_RELEASE="${PBS_RELEASE:-20261021}"    # astral-sh/python-build-standalone release tag
@@ -82,6 +86,12 @@ declare -A PIN=(
   [cpython-3.12.15+20261021-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz]=6d7521138fd33afddc1ccd08abb007d9a2829e38117c2576f9efdc0ec73ce772
   # GPL-2.0 source of the proot binary (same archive Termux's build recipe pins); used for COPYING.
   [proot-v5.1.107.98.zip]=9de61bddd6f5016d065e2755b72ff4747290e5f992562f031785b107b51d02ba
+  # proroot v1.2.8 release assets (sha256 as published by the GitHub release API).
+  [libproroot.so]=a4e74d75b66cdc02b080adfe863dbf9951c3b30610d77beddc95488d5fe5de01
+  [libproroot-runtime.so]=8c47a0a7db32d84c179ebb5bf3640f655a3181860ece5886ae44d92858730c34
+  [libproroot-linker.so]=51a0ec5bfed00e572a0de09e22d9057e2befc386b78e426613d3e0ab03f4ecee
+  [libproroot-stub-loader.so]=06c6624db3bdc45b9ced151cd781df439a37b47731d244b93e9d6a58cd48cde0
+  [libproroot-bridge.so]=1c5bc9537a270e8bf8b1c70222813f57b60b828bfb5503ddf8fe37685092de2f
 )
 
 log() { printf '\033[1;34m[runtime %s]\033[0m %s\n' "$(date +%H:%M:%S)" "$*" >&2; }
@@ -373,6 +383,21 @@ for name, (pkg, ver, deb, inner, patch, orig) in src.items():
     }
 json.dump(res, open(out, "w"), indent=2)
 PYEOF
+  # -- proroot (optional arm64 backend): vendor launcher + companions, then the MIT entry shims --
+  if [[ "$abi" == "arm64-v8a" ]]; then
+    local frelease="https://github.com/coderredlab/proroot/releases/download/v$PROROOT_VERSION"
+    local pf
+    for pf in libproroot.so libproroot-runtime.so libproroot-linker.so libproroot-stub-loader.so libproroot-bridge.so; do
+      fetch "$frelease/$pf" "$CACHE/proroot/v$PROROOT_VERSION/$pf" "$(pin_of "$pf")"
+      cp "$CACHE/proroot/v$PROROOT_VERSION/$pf" "$jni/$pf"
+    done
+    cp "$HERE/vendor/proroot-compat/arm64-v8a/libdsha-proroot-compat.so" "$jni/"
+    cp "$HERE/vendor/proroot-compat/arm64-v8a/libdsha-proroot-linker.so" "$jni/"
+    chmod 0755 "$jni"/libproroot*.so "$jni"/libdsha-proroot-*.so
+    "${PY[@]}" elf-info "$jni"/libproroot*.so "$jni"/libdsha-proroot-*.so > "$work/proroot-elf.json"
+    log "proroot $PROROOT_VERSION bundled (optional backend, arm64-v8a)"
+  fi
+
   # licenses for the native bits
   python3 -I - "$proot_src" "$assets/licenses/proot-COPYING.txt" <<'PYEOF'
 import sys, zipfile

@@ -62,6 +62,21 @@ class _DirectEngineSettingsState extends ConsumerState<DirectEngineSettings> {
           value: status.directEngineEnabled,
           onChanged: enabled ? _change : null,
         ),
+        // proroot keeps proot's compatibility model and drops the ptrace round trip; only
+        // arm64 runtimes carry the binaries.
+        if (status.prorootEngineAvailable || status.prorootEngineEnabled)
+          SettingsSwitchTile(
+            title: l10n.phoneProrootEngine,
+            subtitle: !stopped
+                ? l10n.phoneDirectStopFirst
+                : status.inSafeMode
+                ? l10n.phoneDirectSafeHint
+                : l10n.phoneProrootHint,
+            value: status.prorootEngineEnabled,
+            onChanged: runtime.loaded && stopped && !_saving && status.prorootEngineAvailable
+                ? _changeProroot
+                : null,
+          ),
       ],
     );
   }
@@ -70,6 +85,17 @@ class _DirectEngineSettingsState extends ConsumerState<DirectEngineSettings> {
     setState(() => _saving = true);
     try {
       await ref.read(runtimeBridgeProvider).setDirectEngine(value);
+    } catch (_) {
+      if (mounted) showBriefNotice(context, context.l10n.phoneDirectChangeFailed);
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _changeProroot(bool value) async {
+    setState(() => _saving = true);
+    try {
+      await ref.read(runtimeBridgeProvider).setProrootEngine(value);
     } catch (_) {
       if (mounted) showBriefNotice(context, context.l10n.phoneDirectChangeFailed);
     } finally {

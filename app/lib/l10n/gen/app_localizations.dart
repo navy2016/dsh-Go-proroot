@@ -17984,6 +17984,24 @@ abstract class L10n {
   /// **'直接启动本机引擎'**
   String get phoneDirectEngine;
 
+  /// No description provided for @phoneProrootEngine.
+  ///
+  /// In zh, this message translates to:
+  /// **'用 proroot 启动（实验）'**
+  String get phoneProrootEngine;
+
+  /// No description provided for @phoneProrootHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'保留 proot 的兼容语义，改用 LD_PRELOAD 翻译路径，省掉每次路径系统调用被 ptrace 拦下的开销。默认关闭，停止引擎后打开才生效。'**
+  String get phoneProrootHint;
+
+  /// No description provided for @phoneProrootNeedsRuntime.
+  ///
+  /// In zh, this message translates to:
+  /// **'这个安装包没有内置 proroot（仅 arm64 的运行时带）'**
+  String get phoneProrootNeedsRuntime;
+
   /// No description provided for @phoneDirectHint.
   ///
   /// In zh, this message translates to:

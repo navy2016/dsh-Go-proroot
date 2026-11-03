@@ -87,16 +87,21 @@ class DirectLaunchTest {
         assertFalse(pref(false).enabled)
     }
 
-    @Test fun aFailedDirectLaunchHoldsOnlyForTheRuntimeItFailedWith() {
-        val failed = DirectLaunch.Preference(saved = true, available = true, failedRuntime = "r1", runtime = "r1")
-        assertTrue(failed.requested)
-        assertTrue(failed.failed)
-        assertFalse(failed.enabled)
+    @Test fun aFailedDirectLaunchHoldsOnlyForTheRuntimeItFailedWithAndOnlyAfterEveryAttempt() {
+        // One failure is not final: a later start still tries Direct (see MAX_ATTEMPTS).
+        val once = DirectLaunch.Preference(saved = true, available = true, failedRuntime = "r1", runtime = "r1", failures = 1)
+        assertTrue(once.requested)
+        assertFalse(once.failed)
+        assertTrue(once.enabled)
+        val spent = once.copy(failures = DirectLaunch.Preference.MAX_ATTEMPTS)
+        assertTrue(spent.requested)
+        assertTrue(spent.failed)
+        assertFalse(spent.enabled)
         // A new runtime gets one fresh try; so does an explicit "off" staying off.
-        assertTrue(failed.copy(runtime = "r2").enabled)
-        assertFalse(failed.copy(saved = false).enabled)
+        assertTrue(spent.copy(runtime = "r2").enabled)
+        assertFalse(spent.copy(saved = false).enabled)
         // An unreadable manifest is not a match.
-        assertFalse(failed.copy(runtime = null).failed)
+        assertFalse(spent.copy(runtime = null).failed)
     }
 
     @Test fun aFailedDirectLaunchSelectsProotWithItsReasonButSafeModeKeepsItsOwn() {
