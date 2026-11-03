@@ -132,7 +132,10 @@ class DshProcess(
         var speechPending = !safe && SpeechGuest.file(rootfs).isFile
         for (arg in launchArgv) {
             if (!bindsPlaced && arg == "/usr/bin/env") {
-                allBinds.forEach { argv += "-b"; argv += it }
+                allBinds.forEach { bind ->
+                    argv += "-b"
+                    argv += if (proroot) ProrootLaunch.bindValue(bind) else bind
+                }
                 bindsPlaced = true
             }
             if (arg == GUEST_ENV) {
@@ -185,7 +188,8 @@ class DshProcess(
         readyReported = false
         if (directFallbackReason == DirectLaunch.INCOMPATIBLE) listener.onLog("[dsh-app] direct fallback: proot hard-link backing files need compatible launch; user preference and data retained", "system")
         if (directFallbackReason == DirectLaunch.FAILED) listener.onLog("[dsh-app] direct fallback: direct launch failed before with this runtime; turn Direct on again to retry", "system")
-        listener.onLog("[dsh-app] launch method: ${if (direct) "direct-glibc" else "proot"}${if (directEngine && safe) " (safe recovery)" else ""}", "system")
+        val method = if (proroot) ProrootLaunch.BACKEND else if (direct) "direct-glibc" else "proot"
+        listener.onLog("[dsh-app] launch method: $method${if (directEngine && safe) " (safe recovery)" else ""}", "system")
         listener.onLog("[dsh-app] launching ${builder.command().joinToString(" ") { redact(it) }}", "system")
         // stop() came in while this was being prepared: don't launch at all.
         if (stopping) {

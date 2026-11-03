@@ -28,7 +28,7 @@ class ProrootLaunchTest {
         assertEquals("{ROOTFS}", out[rootAt + 1])
         val cwdAt = out.indexOf("-w")
         assertEquals("/root", out[cwdAt + 1])
-        assertEquals(listOf("/dev", "{ROOTFS}/var/lib/dsh-app/shm:/dev/shm"), binds(out))
+        assertEquals(listOf("/dev:/dev", "{ROOTFS}/var/lib/dsh-app/shm:/dev/shm"), binds(out))
         val envAt = template.indexOf("/usr/bin/env")
         assertEquals(template.drop(envAt), out.drop(out.indexOf("/usr/bin/env")))
     }
@@ -37,6 +37,36 @@ class ProrootLaunchTest {
     @Test fun leavesALaunchWithoutAGuestEnvironmentAlone() {
         val argv = listOf("/native/libproot.so", "-0")
         assertEquals(argv, ProrootLaunch.convert(argv))
+    }
+
+    /** proroot rejects a bare path; proot's shorthand has to become host:guest. */
+    @Test fun expandsBareBindsAndLeavesPairsAlone() {
+        val argv = listOf(
+            "/native/libproot.so", "-b", "/sys", "-b", "/data/root:/root", "--bind=/apex",
+            "/usr/bin/env", "-i", "/bin/sh", "-c", "true",
+        )
+        val out = ProrootLaunch.convert(argv)
+        assertEquals(listOf("/sys:/sys", "/data/root:/root", "/apex:/apex"), bindsAndInlineBinds(out))
+    }
+
+    private fun bindsAndInlineBinds(argv: List<String>): List<String> {
+        val out = ArrayList<String>()
+        var at = 0
+        while (at < argv.size) {
+            when {
+                argv[at] == "-b" || argv[at] == "--bind" -> {
+                    val value = argv.getOrNull(at + 1) ?: return out
+                    if (':' in value) out += value
+                    at += 2
+                }
+                argv[at].startsWith("--bind=") -> {
+                    out += argv[at].substringAfter('=')
+                    at++
+                }
+                else -> at++
+            }
+        }
+        return out
     }
 
     private fun binds(argv: List<String>): List<String> {

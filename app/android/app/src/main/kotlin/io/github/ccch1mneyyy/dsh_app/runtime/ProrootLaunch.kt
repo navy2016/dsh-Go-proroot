@@ -19,6 +19,9 @@ object ProrootLaunch {
 
     private val DROPPED = setOf("--kill-on-exit", "--sysvipc", "-L")
 
+    /** proroot takes host:guest only; proot also accepts a bare path meaning host=guest. */
+    fun bindValue(value: String): String = if (':' in value) value else "$value:$value"
+
     /**
      * Convert the manifest's proot launch argv, everything up to the first "/usr/bin/env",
      * into a proroot-compatible prefix. Placeholders such as {ROOTFS} are kept; DshProcess
@@ -38,8 +41,9 @@ object ProrootLaunch {
                     at++
                 }
                 "-b", "--bind" -> {
+                    val value = proot.getOrNull(at + 1) ?: error("proroot engine: missing value after $arg")
                     out += arg
-                    out += proot.getOrNull(at + 1) ?: error("proroot engine: missing value after $arg")
+                    out += bindValue(value)
                     at += 2
                 }
                 else -> {
@@ -51,6 +55,9 @@ object ProrootLaunch {
                         arg.startsWith("--cwd=") -> {
                             out += "-w"
                             out += arg.substringAfter('=')
+                        }
+                        arg.startsWith("--bind=") -> {
+                            out += "--bind=" + bindValue(arg.substringAfter('='))
                         }
                         else -> out += arg
                     }
