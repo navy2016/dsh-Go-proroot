@@ -39,6 +39,13 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      # Without this each run gets a fresh ~/.android/debug.keystore, so every APK would carry a
+      # different signing key and every install would need the previous one uninstalled first.
+      - name: keep one debug signing key across runs
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: android-debug-keystore-v1
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.47.7'
