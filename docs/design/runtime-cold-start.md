@@ -180,6 +180,24 @@ proot 在 seccomp 模式下只拦带路径的系统调用，但这些恰好是 D
 
 推荐顺序：C 的上游 PR 随时可做；A 做成可开关的实验运行时，真机量过再决定；B 不建议——它的收益 A 也能拿到，代价却是换掉整个产品承诺的环境。
 
+### 5.2.1 第四条路线:proroot(2026-11-03 已实现,默认关闭)
+
+[coderredlab/proroot](https://github.com/coderredlab/proroot) 是 proot 的 drop-in 替代:保留 proot 的路径翻译兼容语义,但用 LD_PRELOAD 与二进制补丁代替 ptrace。**它不需要改路径映射、DNS 与子进程**,而这恰好是路线 A 最难的三处(§5.3)。提出见 issue #297。
+
+实现约定:
+- `ProrootLaunch.convert` 把启动模板的 proot 段转成 proroot 参数(`--rootfs=`/`--cwd=` → `-r`/`-w`,去掉 `--kill-on-exit`/`--sysvipc`/`-L`),guest 命令与环境不变,环境换成 `PROROOT_*`;
+- 后端选择在 `RuntimeController`:proroot 开着时优先于 Direct,默认仍是 proot;`ProrootLaunch.BACKEND` 同时是日志与诊断里的启动方式名;
+- 停止与残留清理区分两种启动器:proroot 没有 tracee,`Process.destroy()` 只杀启动器、SIGQUIT 无效,所以对它用 SIGKILL(`DshProcess.stop` / `killStrays`,`RuntimeProcessOwnership.container`);
+- `runtime/build-runtime.sh` 在 arm64 构建时下载五件 vendor 二进制(sha256 由 `PIN` 固定),并带上 `runtime/vendor/proroot-compat/` 里 DSH-APP/DSHA 的两个 MIT 垫片:Android 13+ 的 glibc 信号栈断言没有它们起不来。
+
+限制与风险:
+- proroot 二进制闭源专有,只能原样分发;声明见 THIRD_PARTY_NOTICES。仓库不收录那五件,构建时下载;
+- 只支持 arm64-v8a,模拟器(x86_64)没有这个后端;
+- **尚未真机验证**:收益与稳定性都要按 §6 的同一套测量做 A/B;去掉 `--sysvipc` 是否影响 DSH 也未知;
+- **失败没有自动回退**(与 Direct 不同),需要用户手动关掉开关;要做回退得像 Direct 那样记录失败次数。
+
+若 §6 的真机数据支持,这条路的维护成本低于 A(不必维护两套路径视图),代价是引入一份不可审计的第三方二进制。
+
 ### 5.3 路线 A 的风险与对策
 
 | 风险 | 说明 | 对策 |

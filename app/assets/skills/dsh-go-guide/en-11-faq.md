@@ -32,6 +32,8 @@ For notifications, also turn on the alerts you want in the app's **Notifications
 
 Direct local engine launch is off by default; you turn it on under Developer options. Once it is on, on a phone where a direct start fails (Android 16 blocks it, for one), it switches to compatible launch on its own: that doesn't count as a failed start and doesn't lead to Safe mode. It keeps using compatible launch until an app update brings a new runtime, and **Diagnostics** shows **Direct launch failed**. To try again, stop the local engine, then turn on **Direct local engine launch** under **Developer options** on the Diagnostics page.
 
+Starting the engine with proroot is off by default; the switch only exists in arm64 builds and lives under **Developer options** as well. It keeps proot's compatibility model but translates paths through LD_PRELOAD instead of ptrace, so a path lookup no longer traps into a tracer. It applies after the engine is stopped. Unlike Direct, proroot does not fall back on its own: turn the switch off if the engine fails to start with it.
+
 After an upgrade from an earlier version, the first direct start tidies your plugin files once; the engine shows **Tidying plugin files** meanwhile. If the phone is short of space or the tidy-up doesn't finish, that start uses compatible launch, **Fallback reason** on the **Diagnostics** page says why, and the next start carries on. No files are lost.
 
 ## Phone control doesn't work
