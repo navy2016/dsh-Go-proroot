@@ -32,7 +32,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: free disk space
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc 2>/dev/null || true
+          # Keep /usr/local/lib/android: the APK step needs the runner's Android SDK.
+          sudo rm -rf /usr/share/dotnet /opt/ghc 2>/dev/null || true
           df -h /
       - uses: actions/setup-java@v4
         with:
