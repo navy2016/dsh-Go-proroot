@@ -46,15 +46,23 @@ jobs:
       - name: build runtime
         run: runtime/build-runtime.sh ${{ inputs.abi }}
       - name: runtime tests against the built tree
+        if: inputs.abi == 'x86_64'
         run: |
-          # The tests CI skips: they import a built dsh tree through DSH_PREFIX.
+          # Only on a matching architecture: the built dsh tree carries platform native
+          # bindings (node-addon-require-builtin), so an arm64 tree cannot load on this x86_64
+          # runner. The tests CI skips reach an installed dsh tree through these variables.
           prefix="runtime/.work/${{ inputs.abi }}/dsh-prefix"
           if [ -d "$prefix" ]; then
-            DSH_PREFIX="$prefix" DSH_TEST_PREFIX="$prefix" node --test --test-isolation=none runtime/tests/*.test.mjs
+            DSH_PREFIX="$prefix" DSH_TEST_PREFIX="$prefix" node --test --test-isolation=none runtime/tests/fs-create-exclusive.test.mjs
+            files=$(find runtime/tests -maxdepth 1 -name '*.test.mjs' ! -name 'fs-create-exclusive.test.mjs' | sort)
+            DSH_PREFIX="$prefix" DSH_TEST_PREFIX="$prefix" node --test $files
           else
             echo "no $prefix; nothing to test against" >&2
             exit 1
           fi
+      - name: runtime tests skipped for arm64
+        if: inputs.abi != 'x86_64'
+        run: echo "An arm64 dsh tree cannot be exercised on the x86_64 runner (native bindings); build x86_64 to run the runtime tests."
       - name: build release APK
         if: inputs.apk
         run: |
