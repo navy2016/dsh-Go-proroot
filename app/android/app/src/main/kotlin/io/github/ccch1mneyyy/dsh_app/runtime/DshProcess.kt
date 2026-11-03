@@ -64,6 +64,8 @@ class DshProcess(
 
     /** Actual method for this process, fixed before it can be spawned. Safe mode stays proot. */
     var direct: Boolean = false
+    /** Whether this launch used proroot; read after exit, when executionMode is already null. */
+    var prorootRun: Boolean = false
         private set
 
     val launchDiagnostics = LaunchDiagnostics()
@@ -86,6 +88,7 @@ class DshProcess(
         directFallbackReason = selection.fallbackReason ?: if (directEngine && safe) "safeRecovery" else null
         launchDiagnostics.selected(if (proroot) ProrootLaunch.BACKEND else if (selection.direct) "direct" else "proot", directFallbackReason)
         direct = selection.direct
+        prorootRun = proroot
         check(cleanup.complete || (!direct && !cleanup.ownedRemaining)) { "runtime cleanup incomplete; stop the engine and retry" }
         if (!cleanup.complete) listener.onLog("[dsh-app] starting proot with incomplete process observation; no captured runtime identities remain", "system")
         val pidFile = File(rootfs, "tmp/dsh-web.pid")

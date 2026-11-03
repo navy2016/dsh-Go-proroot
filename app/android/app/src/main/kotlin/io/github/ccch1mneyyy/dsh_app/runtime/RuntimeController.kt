@@ -811,6 +811,16 @@ class RuntimeController private constructor(private val app: Context) : DshProce
                 restartNow("with compatible launch")
                 return
             }
+            if (source.prorootRun && readyAt == null && !expected) {
+                // proroot never brought the engine up; there is no classifier for its failures.
+                // Turn the switch off and restart on proot so this cannot loop; turning it on
+                // again is an explicit retry (the same contract as Direct).
+                prefs.edit().putBoolean(K_PROROOT_ENGINE, false).apply()
+                log("[dsh-app] proroot could not start the engine; switched back to proot", "system")
+                emitStatus()
+                restartNow("with proot")
+                return
+            }
             if (!runSafe) f = f.copy(recent = recentChanges())
             val outcome = SafePolicy.onFailure(safeState, strikes, f, autoSafe(),
                 AppStrings.get(app, R.string.safe_probation_failed), AppStrings.get(app, R.string.safe_auto_started))
@@ -896,7 +906,7 @@ class RuntimeController private constructor(private val app: Context) : DshProce
         private const val K_MOVED = "movedAside"
         private const val K_AUTO_SAFE = "autoSafe"
         private const val K_DIRECT_ENGINE = "directEngine"
-        /** proroot backend switch (see [ProrootLaunch]). */
+        /** proroot back-end switch (see [ProrootLaunch]). */
         private const val K_PROROOT_ENGINE = "prorootEngine"
         /** Runtime version Direct failed to launch with (see [SafePolicy.directLaunchFailed]). */
         private const val K_DIRECT_FAILED = "directEngineFailedRuntime"
