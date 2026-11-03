@@ -30,9 +30,9 @@ jobs:
         run: python3 app/tool/guide_sync.py --check
       - name: runtime tests that need no built dsh prefix
         run: |
-          # Tests importing a built dsh tree require DSH_PREFIX
+          # Tests that import a built dsh tree need DSH_PREFIX / DSH_TEST_PREFIX
           # (runtime/build-runtime.sh output); those run in the Runtime build workflow.
-          files=$(grep -L "DSH_PREFIX" runtime/tests/*.test.mjs || true)
+          files=$(grep -L -e "DSH_PREFIX" -e "@deepseek-ai/" runtime/tests/*.test.mjs || true)
           if [ -z "$files" ]; then
             echo "no prefix-free runtime tests found" >&2
             exit 1
@@ -89,10 +89,11 @@ jobs:
           flutter pub get
           flutter analyze
       # Before the widget tests: a compile failure here is the signal we care about most,
-      # and it must not be masked by a later step failing.
+      # and it must not be masked by a later step failing. The project builds through its own
+      # script because the app uses product flavors (arm64/x64) — plain `flutter build apk`
+      # leaves the APK under a flavor-suffixed name that Flutter's own lookup misses.
       - name: debug APK (compiles Kotlin; no bundled runtime)
-        working-directory: app
-        run: flutter build apk --debug --target-platform android-arm64
+        run: tooling/build-apk.sh --debug -f arm64
       - name: CJK fonts for widget tests
         run: |
           sudo apt-get update -qq
@@ -114,5 +115,5 @@ jobs:
         if: always()
         with:
           name: dsh-go-debug-apk
-          path: app/build/app/outputs/flutter-apk/*.apk
+          path: app/build/app/outputs/**/*.apk
           if-no-files-found: warn

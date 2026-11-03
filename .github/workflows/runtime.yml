@@ -50,7 +50,7 @@ jobs:
           # The tests CI skips: they import a built dsh tree through DSH_PREFIX.
           prefix="runtime/.work/${{ inputs.abi }}/dsh-prefix"
           if [ -d "$prefix" ]; then
-            DSH_PREFIX="$prefix" node --test runtime/tests/*.test.mjs
+            DSH_PREFIX="$prefix" DSH_TEST_PREFIX="$prefix" node --test --test-isolation=none runtime/tests/*.test.mjs
           else
             echo "no $prefix; nothing to test against" >&2
             exit 1
