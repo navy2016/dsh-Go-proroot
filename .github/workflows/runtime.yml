@@ -1,0 +1,63 @@
+name: Runtime build
+
+# Builds the bundled Linux runtime (Ubuntu base + Node + DSH + proroot) and, optionally, a
+# release APK from it. Heavy and slow: the runtime downloads several hundred MB and packs a
+# rootfs. Run it by hand — a normal push only runs CI.
+on:
+  workflow_dispatch:
+    inputs:
+      abi:
+        description: ABI to build
+        required: true
+        default: arm64-v8a
+        type: choice
+        options:
+          - arm64-v8a
+          - x86_64
+      apk:
+        description: Also build a release APK
+        type: boolean
+        default: true
+
+concurrency:
+  group: runtime-${{ inputs.abi }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: runtime ${{ inputs.abi }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - name: free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc 2>/dev/null || true
+          df -h /
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.7'
+          channel: stable
+          cache: true
+      - name: build runtime
+        run: runtime/build-runtime.sh ${{ inputs.abi }}
+      - name: build release APK
+        if: inputs.apk
+        run: |
+          if [ "${{ inputs.abi }}" = "x86_64" ]; then flavor=x64; else flavor=arm64; fi
+          tooling/build-apk.sh --build-name 0.0.0-ci -f "$flavor"
+      - name: show proroot packaging
+        run: |
+          ls -l runtime/out/${{ inputs.abi }}/jniLibs/${{ inputs.abi }}/ | grep -E "proroot|dsha" || echo "no proroot binaries in this ABI"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dsh-go-runtime-${{ inputs.abi }}
+          path: |
+            runtime/out/${{ inputs.abi }}/assets/runtime/manifest.json
+            runtime/out/${{ inputs.abi }}/build-report.json
+            app/build/app/outputs/flutter-apk/*.apk
+          if-no-files-found: warn
