@@ -172,7 +172,11 @@ class DshProcess(
             env["PROROOT_LIB_PATH"] = expand("{NATIVE_LIB_DIR}/${ProrootLaunch.RUNTIME}")
             env["PROROOT_LINKER_PATH"] = expand("{NATIVE_LIB_DIR}/${ProrootLaunch.LINKER_ADAPTER}")
             env["PROROOT_STUB_LOADER"] = expand("{NATIVE_LIB_DIR}/${ProrootLaunch.STUB_LOADER}")
-            manifest.launchEnv.forEach { (k, v) -> if (!k.startsWith("PROOT_")) env[k] = expand(v) }
+            // proroot finds its own companions through PROROOT_*; LD_LIBRARY_PATH pointing at the
+            // app's Android-only .so directory would only mislead guest programs.
+            manifest.launchEnv.forEach { (k, v) ->
+                if (!k.startsWith("PROOT_") && k != "LD_LIBRARY_PATH") env[k] = expand(v)
+            }
         } else {
             env["PROOT_TMP_DIR"] = tmp.absolutePath
             manifest.launchEnv.forEach { (k, v) -> env[k] = expand(v) }
