@@ -76,6 +76,14 @@ object ProrootLaunch {
         }
         val rootPath = root ?: return argv
 
+        val tail = argv.drop(envAt).toMutableList()
+        // proroot hands its path-translation hooks to the guest through the process environment
+        // (the launcher preloads its runtime library). `env -i` is right for proot, which would
+        // otherwise leak the Android environment, but here it wipes those hooks before the guest
+        // starts: every lookup then lands on the host filesystem — /etc showed Android's files and
+        // node was missing, while dsh still started because --static-loader routes exec itself.
+        if (tail.getOrNull(1) == "-i" || tail.getOrNull(1) == "--ignore-environment") tail.removeAt(1)
+
         return buildList {
             add(first.substringBeforeLast('/') + "/" + LAUNCHER)
             add("--static-loader")
@@ -91,7 +99,7 @@ object ProrootLaunch {
                 add(bind)
             }
             if (link2symlink) add("--link2symlink")
-            addAll(argv.drop(envAt))
+            addAll(tail)
         }
     }
 }

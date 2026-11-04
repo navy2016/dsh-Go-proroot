@@ -32,8 +32,12 @@ class ProrootLaunchTest {
         val cwdAt = out.indexOf("-w")
         assertEquals("/root", out[cwdAt + 1])
         assertEquals(listOf("/dev:/dev", "{ROOTFS}/var/lib/dsh-app/shm:/dev/shm"), binds(out))
-        val envAt = template.indexOf("/usr/bin/env")
-        assertEquals(template.drop(envAt), out.drop(out.indexOf("/usr/bin/env")))
+        // The guest side keeps its variables but loses proot's `-i`: proroot needs the launcher's
+        // environment, which is where its preloaded path hooks live, to reach the guest.
+        val guestSide = out.drop(out.indexOf("/usr/bin/env"))
+        assertEquals("/usr/bin/env", guestSide.first())
+        assertFalse(guestSide.contains("-i"))
+        assertEquals(template.drop(template.indexOf("/usr/bin/env") + 2), guestSide.drop(1))
     }
 
     /** No guest environment means no proot preamble: hand it back untouched. */
