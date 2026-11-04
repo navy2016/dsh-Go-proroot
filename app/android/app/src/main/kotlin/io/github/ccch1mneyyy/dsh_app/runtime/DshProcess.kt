@@ -167,8 +167,12 @@ class DshProcess(
         env["ANDROID_ROOT"] = System.getenv("ANDROID_ROOT") ?: "/system"
         env["ANDROID_DATA"] = System.getenv("ANDROID_DATA") ?: "/data"
         if (proroot) {
-            // proroot reads its companion libraries from the environment; PROOT_* keys are gone.
-            env["PROROOT_TMP_DIR"] = tmp.absolutePath
+            // New children reopen the config by pathname; a cached, unlinked file only survives in existing mappings.
+            val stateDir = File(context.noBackupFilesDir, "proroot")
+            if (!stateDir.isDirectory && !stateDir.mkdirs() && !stateDir.isDirectory) {
+                throw IOException("Cannot create proroot state directory")
+            }
+            env["PROROOT_TMP_DIR"] = stateDir.absolutePath
             env["PROROOT_LIB_PATH"] = expand("{NATIVE_LIB_DIR}/${ProrootLaunch.RUNTIME}")
             env["PROROOT_LINKER_PATH"] = expand("{NATIVE_LIB_DIR}/${ProrootLaunch.LINKER_ADAPTER}")
             env["PROROOT_STUB_LOADER"] = expand("{NATIVE_LIB_DIR}/${ProrootLaunch.STUB_LOADER}")

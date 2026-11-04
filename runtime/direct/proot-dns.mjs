@@ -5,8 +5,12 @@
 // stop a Node process from running.
 import { installLookup } from './dns.mjs';
 
-try {
-  installLookup({ resolvConf: '/etc/resolv.conf', hostsFile: '/etc/hosts' });
-} catch {
-  console.error('[dsh-app] proot DNS initialization failed; native lookup retained');
+// proroot supplies its own libc hooks. Keep native lookup there rather than applying
+// PRoot's adapter, whose ADDRCONFIG filtering relies on a complete interface view.
+if (!process.env.PROROOT_ROOTFS) {
+  try {
+    installLookup({ resolvConf: '/etc/resolv.conf', hostsFile: '/etc/hosts' });
+  } catch {
+    console.error('[dsh-app] proot DNS initialization failed; native lookup retained');
+  }
 }

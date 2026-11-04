@@ -182,6 +182,50 @@ test('the live directory watcher observes atomic replacement and recovers after 
   await eventually(async () => (await adapter.promiseLookup('dual.test', 4)).address === '192.0.2.7');
 });
 
+test('proroot keeps native DNS instead of installing the PRoot adapter', () => {
+  const glue = new URL('../../direct/proot-dns.mjs', import.meta.url).href;
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', `
+    import assert from 'node:assert/strict';
+    import dns from 'node:dns';
+    import fs from 'node:fs';
+    const lookup = dns.lookup;
+    const promiseLookup = dns.promises.lookup;
+    const read = fs.readFileSync;
+    let resolverReads = 0;
+    fs.readFileSync = function (file, ...args) {
+      if (file === '/etc/resolv.conf' || file === '/etc/hosts') resolverReads++;
+      return read.call(this, file, ...args);
+    };
+    await import(${JSON.stringify(glue)});
+    assert.equal(dns.lookup, lookup);
+    assert.equal(dns.promises.lookup, promiseLookup);
+    assert.equal(resolverReads, 0);
+  `], { env: { ...process.env, NODE_OPTIONS: '', PROROOT_ROOTFS: '/probe/rootfs' }, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test('PRoot still installs its per-family DNS adapter', () => {
+  const glue = new URL('../../direct/proot-dns.mjs', import.meta.url).href;
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', `
+    import assert from 'node:assert/strict';
+    import dns from 'node:dns';
+    import fs from 'node:fs';
+    const lookup = dns.lookup;
+    const promiseLookup = dns.promises.lookup;
+    const read = fs.readFileSync;
+    fs.readFileSync = function (file, ...args) {
+      if (file === '/etc/resolv.conf') return 'nameserver 127.0.0.1\\n';
+      if (file === '/etc/hosts') return '127.0.0.1 localhost\\n';
+      return read.call(this, file, ...args);
+    };
+    fs.watch = () => ({ on() {}, close() {} });
+    await import(${JSON.stringify(glue)});
+    assert.notEqual(dns.lookup, lookup);
+    assert.notEqual(dns.promises.lookup, promiseLookup);
+  `], { env: { ...process.env, NODE_OPTIONS: '', PROROOT_ROOTFS: '' }, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+});
+
 test('the PRoot DNS import never stops Node, whether or not its resolver starts', () => {
   const glue = fileURLToPath(new URL('../../direct/proot-dns.mjs', import.meta.url));
   const result = spawnSync(process.execPath, ['--import', glue, '-e', 'console.log("main")'], { encoding: 'utf8' });
