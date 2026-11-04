@@ -76,9 +76,62 @@ jobs:
         run: |
           if [ "${{ inputs.abi }}" = "x86_64" ]; then flavor=x64; else flavor=arm64; fi
           tooling/build-apk.sh --build-name 0.0.0-ci -f "$flavor"
-      - name: show proroot packaging
+      - name: verify proroot packaging
+        env:
+          ABI: ${{ inputs.abi }}
+          EXPECT_APK: ${{ inputs.apk }}
         run: |
-          ls -l runtime/out/${{ inputs.abi }}/jniLibs/${{ inputs.abi }}/ | grep -E "proroot|dsha" || echo "no proroot binaries in this ABI"
+          python3 - <<'PY'
+          import hashlib
+          import os
+          import pathlib
+          import re
+          import zipfile
+
+          abi = os.environ['ABI']
+          jni = pathlib.Path('runtime/out') / abi / 'jniLibs' / abi
+          if not jni.is_dir():
+              raise SystemExit(f'{abi}: native library staging directory is missing')
+          vendor = {
+              'libproroot.so', 'libproroot-runtime.so', 'libproroot-linker.so',
+              'libproroot-stub-loader.so', 'libproroot-bridge.so',
+          }
+          shims = {'libdsha-proroot-compat.so', 'libdsha-proroot-linker.so'}
+          expected = {}
+          if abi == 'arm64-v8a':
+              pins = dict(re.findall(r'^\s*\[(libproroot[^\]]*\.so)\]=([0-9a-f]{64})$',
+                                    pathlib.Path('runtime/build-runtime.sh').read_text(), re.MULTILINE))
+              if set(pins) != vendor:
+                  raise SystemExit('proroot vendor pins are missing or unexpected')
+              expected.update(pins)
+              for name in shims:
+                  source = pathlib.Path('runtime/vendor/proroot-compat/arm64-v8a') / name
+                  expected[name] = hashlib.sha256(source.read_bytes()).hexdigest()
+          staged = {path.name for path in jni.glob('*proroot*.so')}
+          if staged != set(expected):
+              raise SystemExit(f'{abi}: unexpected staged proroot files: {sorted(staged)}')
+          for name, digest in sorted(expected.items()):
+              if hashlib.sha256((jni / name).read_bytes()).hexdigest() != digest:
+                  raise SystemExit(f'{abi}: staged {name} differs from its source')
+          print(f'{abi}: staged proroot files verified ({len(expected)})')
+
+          if os.environ['EXPECT_APK'] == 'true':
+              apks = sorted(pathlib.Path('app/build/app/outputs/flutter-apk').glob('*.apk'))
+              if not apks:
+                  raise SystemExit('no APK found to verify')
+              for apk in apks:
+                  with zipfile.ZipFile(apk) as archive:
+                      actual = [name for name in archive.namelist()
+                                if name.startswith('lib/') and 'proroot' in name and name.endswith('.so')]
+                      wanted = {f'lib/{abi}/{name}' for name in expected}
+                      if set(actual) != wanted or len(actual) != len(wanted):
+                          raise SystemExit(f'{apk.name}: missing, duplicate or unexpected proroot entries')
+                      for name, digest in sorted(expected.items()):
+                          if hashlib.sha256(archive.read(f'lib/{abi}/{name}')).hexdigest() != digest:
+                              raise SystemExit(f'{apk.name}: {name} was modified during APK packaging')
+                          print(f'{apk.name}: {name} SHA256 OK')
+                  print(f'{apk.name}: proroot payload verified ({len(expected)} files)')
+          PY
       - uses: actions/upload-artifact@v4
         with:
           name: dsh-go-runtime-${{ inputs.abi }}
